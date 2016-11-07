@@ -54,7 +54,7 @@
 
 (defun convert-meshes (out)
   (labels ((%extract-mesh (node mesh idx)
-             (list (format nil "~a~a" (ai:name node) idx)
+             (list (format nil "~a.~a" (ai:name node) idx)
                    :arrays `((0 ,(%2a->l (ai:vertices mesh)))
                              (1 ,(%2a->l (ai:normals mesh))))
                    :face :triangles
@@ -65,9 +65,8 @@
          (print '(:mesh) out)
          (pprint mesh out))))
 
-
+(declaim (special *parent-bone*))
 (defun convert-bones (out)
-  (declare (special *parent-bone*))
   (let ((bone-table (make-hash-table :test 'equal)))
     (labels ((%extract-bones (node mesh idx)
                (let ((bones (ai:bones mesh)))
@@ -95,9 +94,26 @@
       (let ((*parent-bone* (list nil)))
         (%bone-hierarchy (ai:root-node *scene*))
         (loop for root in (rest *parent-bone*)
-           for skeleton-name = (format nil "~a-skeleton" (caar root)) do
+           for skeleton-name = (format nil "~a.skeleton" (caar root)) do
              (print '(:skeleton) out)
              (pprint (list skeleton-name root) out))))))
+
+
+(defun convert-animation (out)
+  (loop for ani across (ai:animations *scene*)
+     for idx = 0 then (1+ idx)
+     for ani-name = (format nil "animation.~a" idx)
+     for tps = (if (= (ai:ticks-per-second ani) 0) 1 (ai:ticks-per-second ani)) do
+       (print '(:animation) out)
+       (let ((chans (loop for chan across (ai:channels ani)
+                       for ch-name = (ai:node-name chan) collect
+                         (append (list (list (format nil "~a.~a.sequence" ani-name ch-name)
+                                             :bone ch-name))
+                                 (loop for node across (ai:rotation-keys chan) collect
+                                      (list (/ (ai:key-time node) tps)
+                                            (%a->l (ai:value node))))))))
+         (pprint (append (list ani-name) chans) out))))
+
 
 
 (defmacro with-scene ((path) &body body)
@@ -115,7 +131,8 @@
     (alexandria:with-output-to-file (out out :if-exists :supersede)
       (print '(:brf 1) out)
       (convert-meshes out)
-      (convert-bones out))))
+      (convert-bones out)
+      (convert-animation out))))
 
 
 (defun print-hierarchy (in)
