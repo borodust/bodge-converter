@@ -12,7 +12,7 @@
   :author "Pavel Korolev"
   :mailto "dev@borodust.org"
   :license "MIT"
-  :depends-on (alexandria log4cl cl-fad classimp)
+  :depends-on (alexandria log4cl cl-fad classimp rtg-math)
   :serial t
   :components ((:file "packages")
                (:file "main")))
