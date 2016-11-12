@@ -2,5 +2,6 @@
 
 
 (defpackage :bodge-converter
-  (:use :cl :alexandria :rtg-math)
-  (:export))
+  (:use :cl :alexandria)
+  (:export print-hierarchy
+           convert-to-bodge))

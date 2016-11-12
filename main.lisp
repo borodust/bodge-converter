@@ -35,6 +35,13 @@
   (concatenate 'list array))
 
 
+(defun %a->m4 (arr)
+  (macrolet ((assign ()
+               `(m4:make ,@(loop for i below 16 collecting
+                                `(aref arr ,i)))))
+    (assign)))
+
+
 (defun %transpose-flat (array)
   (assert (= (length array) 16))
   (let* ((size 4)
@@ -117,7 +124,11 @@
 
 
 (defun convert-meshes (out)
-  (labels ((%extract-mesh (node mesh idx)
+  (labels ((%bake-transform (node)
+             (if (null node)
+                 (m4:identity)
+                 (m4:* (%bake-transform (ai:parent node)) (%a->m4 (ai:transform node)))))
+           (%extract-mesh (node mesh idx)
              (let* ((name (format nil "~a.~a" (ai:name node) idx))
                     (bones (unless (null (ai:bones mesh))
                              (loop with r = (make-hash-table :test 'eql)
@@ -129,6 +140,7 @@
                     (arrays (list `(0 ,(%2a->l vertices))
                                   `(1 ,(%2a->l (ai:normals mesh))))))
                (list name
+                     :transform (%a->l (m4:transpose (%bake-transform node)))
                      :arrays (append arrays
                                      (collect-weights bones (length vertices)))
                      :face :triangles
@@ -147,10 +159,22 @@
          (pprint mesh out))))
 
 
-(declaim (special *parent-bone*))
+(declaim (special *parent-bone* *root*))
 (defun convert-bones (out)
   (let ((bone-table (make-hash-table :test 'equal)))
-    (labels ((%extract-bones (node mesh idx)
+    (labels ((%register-parents (node)
+               (if (gethash (ai:name node) bone-table)
+                   (if (null *root*)
+                       (let ((*root* node))
+                         (%for-each-child node #'%register-parents))
+                       (loop for parent = (ai:parent node) then (ai:parent parent)
+                          until (gethash (ai:name parent) bone-table)
+                          do (setf (gethash (ai:name parent) bone-table) t)
+                          finally (%for-each-child node #'%register-parents)))
+                   (%for-each-child node #'%register-parents)))
+
+             (%extract-bones (node mesh idx)
+               (declare (ignore node idx))
                (let ((bones (ai:bones mesh)))
                  (when bones
                    (loop for bone across bones
@@ -174,6 +198,8 @@
                      (%for-each-child node #'%bone-hierarchy)))))
 
       (%traverse (ai:root-node *scene*) #'%bones)
+      (let ((*root* nil))
+        (%register-parents (ai:root-node *scene*)))
       (let ((*parent-bone* (list nil)))
         (%bone-hierarchy (ai:root-node *scene*))
         (loop for root in (rest *parent-bone*) do
