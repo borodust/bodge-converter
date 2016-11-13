@@ -106,8 +106,8 @@
      collect
        (gethash id bones)
      into bone-list
-     finally (return (list `(10 ,(ensure-component-size weight-list 0.0))
-                           `(11 ,(ensure-component-size bone-list 0))))))
+     finally (return (list `(2 ,(ensure-component-size weight-list 0.0))
+                           `(3 ,(ensure-component-size bone-list 0))))))
 
 
 (defun collect-weights (bones vertex-count)
@@ -124,7 +124,10 @@
 
 
 (defun convert-meshes (out)
-  (labels ((%bake-transform (node)
+  (labels ((%appendable (idx 2d-array)
+             (unless (null 2d-array)
+               (list `(,idx ,(%2a->l 2d-array)))))
+           (%bake-transform (node)
              (if (null node)
                  (m4:identity)
                  (m4:* (%bake-transform (ai:parent node)) (%a->m4 (ai:transform node)))))
@@ -137,12 +140,17 @@
                                   (setf (gethash i r) bone)
                                 finally (return r))))
                     (vertices (ai:vertices mesh))
-                    (arrays (list `(0 ,(%2a->l vertices))
-                                  `(1 ,(%2a->l (ai:normals mesh))))))
+                    (arrays (append
+                             (list `(0 ,(%2a->l vertices)))
+                             (%appendable 1 (ai:normals mesh))
+                             (collect-weights bones (length vertices))
+                             (when-let ((tex-coords (ai:texture-coords mesh)))
+                               (loop for coords across tex-coords
+                                  for idx = 0 then (1+ idx) collect
+                                    `(,(+ idx 10) ,(%2a->l coords)))))))
                (list name
                      :transform (%a->l (m4:transpose (%bake-transform node)))
-                     :arrays (append arrays
-                                     (collect-weights bones (length vertices)))
+                     :arrays arrays
                      :face :triangles
                      :indexes (%flatten-array (ai:faces mesh))
                      :bones (unless (null bones)
@@ -173,7 +181,7 @@
                           finally (%for-each-child node #'%register-parents)))
                    (%for-each-child node #'%register-parents)))
 
-             (%extract-bones (node mesh idx)
+             (%extract-mesh-bones (node mesh idx)
                (declare (ignore node idx))
                (let ((bones (ai:bones mesh)))
                  (when bones
@@ -183,8 +191,12 @@
                       when (null registered-bone) do
                         (setf (gethash name bone-table) t)))))
 
+             (%extract-animation-bones (animation)
+               (loop for chan across (ai:channels animation) do
+                    (setf (gethash (ai:node-name chan) bone-table) t)))
+
              (%bones (node)
-               (%for-each-mesh node #'%extract-bones))
+               (%for-each-mesh node #'%extract-mesh-bones))
 
              (%bone-hierarchy (node)
                (let ((name (ai:name node)))
@@ -198,6 +210,9 @@
                      (%for-each-child node #'%bone-hierarchy)))))
 
       (%traverse (ai:root-node *scene*) #'%bones)
+      (when-let ((animations (ai:animations *scene*)))
+        (loop for ani across animations do
+             (%extract-animation-bones ani)))
       (let ((*root* nil))
         (%register-parents (ai:root-node *scene*)))
       (let ((*parent-bone* (list nil)))
@@ -207,7 +222,7 @@
              (pprint root out))))))
 
 
-(defun interpolated-value (timestamp frames type)
+(defun interpolated-value (timestamp frames type name)
   (labels ((%a->q (a)
              (q:q! (aref a 0) (aref a 1) (aref a 2) (aref a 3)))
            (%a->v (a)
@@ -222,6 +237,7 @@
                     (this-timestamp (ai:key-time this))
                     (f #f(/ (- timestamp this-timestamp)
                             (- (ai:key-time that) this-timestamp))))
+               (log:debug "Interpolating for '~a' at ~a" name timestamp)
                (ecase type
                  (:quat (%q->l (q:slerp (%a->q (ai:value this)) (%a->q (ai:value that)) f)))
                  (:vec (%v->l (v:lerp (%a->v (ai:value this)) (%a->v (ai:value that)) f)))))))
@@ -238,7 +254,8 @@
 (defun convert-keyframes (chan tps)
   (labels ((%sort-by-time (seq)
              (sort seq #'< :key #'ai:key-time)))
-    (let* ((rotations (%sort-by-time (ai:rotation-keys chan)))
+    (let* ((name (ai:node-name chan))
+           (rotations (%sort-by-time (ai:rotation-keys chan)))
            (positions (%sort-by-time (ai:position-keys chan)))
            (scales (%sort-by-time (ai:scaling-keys chan)))
            (timestamps (remove-duplicates
@@ -247,16 +264,16 @@
                               #'<))))
       (loop for timestamp in timestamps collect
            (list (/ timestamp tps)
-                 (interpolated-value timestamp rotations :quat)
-                 (interpolated-value timestamp positions :vec)
-                 (interpolated-value timestamp scales :vec))))))
+                 (interpolated-value timestamp rotations :quat name)
+                 (interpolated-value timestamp positions :vec name)
+                 (interpolated-value timestamp scales :vec name))))))
 
 
 (defun convert-animation (out)
   (when-let ((ani (ai:animations *scene*)))
     (loop for ani across ani
        for idx = 0 then (1+ idx)
-       for ani-name = (format nil "animation.~a" idx)
+       for ani-name = (format nil "~a.animation.~a"  (ai:name ani) idx)
        for tps = (if (= (ai:ticks-per-second ani) 0) 1 (ai:ticks-per-second ani)) do
          (print '(:animation) out)
          (let ((chans (loop for chan across (ai:channels ani)
