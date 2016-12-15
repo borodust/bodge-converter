@@ -235,8 +235,8 @@
              (let* ((this (aref frames this-idx))
                     (that (aref frames that-idx))
                     (this-timestamp (ai:key-time this))
-                    (f #f(/ (- timestamp this-timestamp)
-                            (- (ai:key-time that) this-timestamp))))
+                    (f (float (/ (- timestamp this-timestamp)
+                                 (- (ai:key-time that) this-timestamp)))))
                (log:debug "Interpolating for '~a' at ~a" name timestamp)
                (ecase type
                  (:quat (%q->l (q:slerp (%a->q (ai:value this)) (%a->q (ai:value that)) f)))
@@ -295,13 +295,12 @@
       ,@body)))
 
 
-(defun convert-to-bodge (in out)
-  (with-scene (in)
-    (alexandria:with-output-to-file (out out :if-exists :supersede)
-      (print '(:brf 1) out)
-      (convert-meshes out)
-      (convert-bones out)
-      (convert-animation out))))
+(defun assimp-to-bodge (bodge-stream asset-file)
+  (with-scene (asset-file)
+    (let ((stream (flexi-streams:make-flexi-stream bodge-stream :external-format :utf-8)))
+      (convert-meshes stream)
+      (convert-bones stream)
+      (convert-animation stream))))
 
 
 (defun print-hierarchy (in)

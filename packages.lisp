@@ -4,4 +4,5 @@
 (defpackage :bodge-converter
   (:use :cl :alexandria)
   (:export print-hierarchy
-           convert-to-bodge))
+           assimp-to-bodge
+           sdf-to-bodge))
