@@ -12,7 +12,7 @@
   :author "Pavel Korolev"
   :mailto "dev@borodust.org"
   :license "MIT"
-  :depends-on (alexandria log4cl cl-fad classimp rtg-math sdf flexi-streams)
+  :depends-on (alexandria log4cl cl-fad classimp rtg-math sdf flexi-streams opticl)
   :serial t
   :components ((:file "packages")
                (:file "brf")

@@ -25,13 +25,33 @@
 
 
 (defun sdf-to-bodge (bodge-stream font-path pixel-size)
-  (let* ((atlas (sdf:make-atlas font-path pixel-size :width 300 :height 300))
-         (image (sdf:atlas-image atlas))
+  (let* ((name (file-namestring font-path))
+         (atlas (sdf:make-atlas font-path pixel-size :width 305 :height 305))
+         (image (opticl:transform-image (sdf:atlas-image atlas)
+                                        (opticl:make-affine-transformation :y-scale -1.0)))
          (image-data (flatten-array image)))
     (destructuring-bind (height width nil) (array-dimensions image)
       (with-character-stream (bodge-stream)
         (prin1 (list :image :width width :height height :pixel-format :rgb
-                     :type :png :size (length image-data) :name (file-namestring font-path))
+                     :type :raw :size (length image-data) :name name)
                bodge-stream)))
-    (write-sequence image-data bodge-stream))
+    (write-sequence image-data bodge-stream)
+
+    (with-character-stream (bodge-stream)
+      (prin1 '(:font-atlas) bodge-stream)
+      (let* ((font (sdf:atlas-metrics atlas))
+             (font-chunk (list (list name
+                                     :image-name name
+                                     :ascender (sdf:font-ascender font)
+                                     :descender (sdf:font-descender font)
+                                     :line-gap (sdf:font-line-gap font))))
+             (glyphs (loop for g in (sdf:font-glyphs font)
+                        for ch = (sdf:glyph-character g)
+                        collect (list (format nil "~a:~a" name ch)
+                                 :character ch
+                                 :bounding-box (sdf:glyph-bounding-box g)
+                                 :origin (sdf:glyph-origin g)
+                                 :advance-width (sdf:glyph-advance-width g)
+                                 :kernings '()))))
+        (prin1 (append font-chunk glyphs) bodge-stream))))
   t)
