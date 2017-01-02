@@ -26,6 +26,8 @@
 
 (defun sdf-to-bodge (bodge-stream font-path pixel-size)
   (let* ((name (file-namestring font-path))
+         (image-name (format nil "/sdf/~A/image" name))
+         (font-atlas-name (format nil "/sdf/~A/font" name))
          (atlas (sdf:make-atlas font-path pixel-size :width 305 :height 305))
          (image (opticl:transform-image (sdf:atlas-image atlas)
                                         (opticl:make-affine-transformation :y-scale -1.0)))
@@ -33,22 +35,22 @@
     (destructuring-bind (height width nil) (array-dimensions image)
       (with-character-stream (bodge-stream)
         (prin1 (list :image :width width :height height :pixel-format :rgb
-                     :type :raw :size (length image-data) :name name)
+                     :type :raw :size (length image-data) :name image-name)
                bodge-stream)))
     (write-sequence image-data bodge-stream)
 
     (with-character-stream (bodge-stream)
-      (prin1 '(:font-atlas) bodge-stream)
+      (prin1 (list :font-atlas :name font-atlas-name) bodge-stream)
       (let* ((font (sdf:atlas-metrics atlas))
-             (font-chunk (list (list name
-                                     :image-name name
+             (font-chunk (list (list font-atlas-name
+                                     :image-name image-name
                                      :ascender (sdf:font-ascender font)
                                      :descender (sdf:font-descender font)
                                      :line-gap (sdf:font-line-gap font))))
              (glyphs (loop for g in (sdf:font-glyphs font)
                         for ch = (sdf:glyph-character g)
                         collect (list (format nil "~a:~a" name ch)
-                                 :character ch
+                                 :character (char-code ch)
                                  :bounding-box (sdf:glyph-bounding-box g)
                                  :origin (sdf:glyph-origin g)
                                  :advance-width (sdf:glyph-advance-width g)

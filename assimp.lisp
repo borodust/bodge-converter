@@ -163,7 +163,7 @@
            (%meshes (node)
              (%for-each-mesh node #'%extract-mesh)))
     (loop for mesh in (%flat-traverse (ai:root-node *scene*) #'%meshes) do
-         (print '(:mesh) out)
+         (print (list :mesh :name (first mesh)) out)
          (pprint mesh out))))
 
 
@@ -218,7 +218,7 @@
       (let ((*parent-bone* (list nil)))
         (%bone-hierarchy (ai:root-node *scene*))
         (loop for root in (rest *parent-bone*) do
-             (print '(:skeleton) out)
+             (print (list :skeleton :name (caar root)) out)
              (pprint root out))))))
 
 
@@ -275,7 +275,7 @@
        for idx = 0 then (1+ idx)
        for ani-name = (format nil "~a.animation.~a"  (ai:name ani) idx)
        for tps = (if (= (ai:ticks-per-second ani) 0) 1 (ai:ticks-per-second ani)) do
-         (print '(:animation) out)
+         (print (list :animation :name ani-name) out)
          (let ((chans (loop for chan across (ai:channels ani)
                          for ch-name = (ai:node-name chan) collect
                            (append (list (list (format nil "~a.~a.sequence" ani-name ch-name)
