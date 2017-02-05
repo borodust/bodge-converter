@@ -1,5 +1,9 @@
 (in-package :bodge-converter)
 
+(defparameter *default-characters*
+  (format nil "~{~A~}" (list "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+                             "АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯабвгдеёжзийклмнопрстуфхцчшщъыьэюя"
+                             "0123456789.,;:?!@#$%^&*()-_<>'\"`~{}[]/\\| ")))
 
 (defun flatten-array (array)
   (let* ((dims (array-dimensions array)))
@@ -24,20 +28,15 @@
             result)))))
 
 
-(defun sdf-to-bodge (bodge-stream font-path pixel-size)
+(defun sdf-to-bodge (bodge-stream font-path pixel-size &key width height)
   (let* ((name (file-namestring font-path))
          (image-name (format nil "/sdf/~A/image" name))
          (font-atlas-name (format nil "/sdf/~A/font" name))
-         (atlas (sdf:make-atlas font-path pixel-size :width 305 :height 305))
-         (image (opticl:transform-image (sdf:atlas-image atlas)
-                                        (opticl:make-affine-transformation :y-scale -1.0)))
-         (image-data (flatten-array image)))
-    (destructuring-bind (height width nil) (array-dimensions image)
-      (with-character-stream (bodge-stream)
-        (prin1 (list :image :width width :height height :pixel-format :rgb
-                     :type :raw :size (length image-data) :name image-name)
-               bodge-stream)))
-    (write-sequence image-data bodge-stream)
+         (atlas (sdf:make-atlas font-path pixel-size
+                                :width width :height height
+                                :string *default-characters*)))
+
+    (%image-to-bodge bodge-stream (sdf:atlas-image atlas) image-name)
 
     (with-character-stream (bodge-stream)
       (prin1 (list :font-atlas :name font-atlas-name) bodge-stream)
@@ -57,3 +56,10 @@
                                  :kernings '()))))
         (prin1 (append font-chunk glyphs) bodge-stream))))
   t)
+
+
+(defun dump-sdf-atlas (font-path atlas-path metrics-path pixel-size &key width height)
+  (let ((atlas (sdf:make-atlas font-path pixel-size
+                               :width width :height height
+                               :string *default-characters*)))
+    (sdf:save-atlas atlas atlas-path metrics-path)))

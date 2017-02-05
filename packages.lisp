@@ -7,4 +7,6 @@
 
            with-new-resource-file
            assimp-to-bodge
-           sdf-to-bodge))
+           sdf-to-bodge
+           image-to-bodge
+           dump-sdf-atlas))
