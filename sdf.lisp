@@ -3,7 +3,7 @@
 (defparameter *default-characters*
   (format nil "~{~A~}" (list "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
                              "АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯабвгдеёжзийклмнопрстуфхцчшщъыьэюя"
-                             "0123456789.,;:?!@#$%^&*()-_<>'\"`~{}[]/\\| ")))
+                             "0123456789.,;:?!@#$%^&*()-+_<>'\"`~{}[]/\\| ")))
 
 (defun flatten-array (array)
   (let* ((dims (array-dimensions array)))
