@@ -132,7 +132,8 @@
                  (m4:identity)
                  (m4:* (%bake-transform (ai:parent node)) (%a->m4 (ai:transform node)))))
            (%extract-mesh (node mesh idx)
-             (let* ((name (format nil "~a.~a" (ai:name node) idx))
+             (declare (ignore idx))
+             (let* ((name (format nil "mesh.~a" (ai:name node)))
                     (bones (unless (null (ai:bones mesh))
                              (loop with r = (make-hash-table :test 'eql)
                                 for bone across (ai:bones mesh)
@@ -262,8 +263,9 @@
                         (sort (mapcar #'ai:key-time
                                       (concatenate 'list rotations positions scales))
                               #'<))))
+      ;; fixme: apply tps (ticks-per-second) and check .fbx animation import after
       (loop for timestamp in timestamps collect
-           (list (/ timestamp tps)
+           (list timestamp
                  (interpolated-value timestamp rotations :quat name)
                  (interpolated-value timestamp positions :vec name)
                  (interpolated-value timestamp scales :vec name))))))
@@ -273,7 +275,7 @@
   (when-let ((ani (ai:animations *scene*)))
     (loop for ani across ani
        for idx = 0 then (1+ idx)
-       for ani-name = (format nil "~a.animation.~a"  (ai:name ani) idx)
+       for ani-name = (format nil "animation.~a"  (ai:name ani))
        for tps = (if (= (ai:ticks-per-second ani) 0) 1 (ai:ticks-per-second ani)) do
          (print (list :animation :name ani-name) out)
          (let ((chans (loop for chan across (ai:channels ani)
