@@ -11,6 +11,7 @@
   `(with-open-file (,stream ,file-path ,@args
                             :element-type '(unsigned-byte 8)
                             :direction :output)
-     (with-character-stream (,stream)
-       (prin1 '(:brf 1) ,stream))
-     ,@body))
+     (let ((*print-pretty* nil))
+       (with-character-stream (,stream)
+         (prin1 '(:brf 1) ,stream))
+       ,@body)))

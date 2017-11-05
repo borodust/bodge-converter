@@ -8,6 +8,10 @@
 (define-constant +bones-per-vertex+ 4)
 
 
+(defun prefixify (name prefix)
+  (format nil "~A~A" (or prefix "") name))
+
+
 (defun search-sorted (value sorted-array &key (test #'eql) (predicate #'<) (key #'identity))
   (labels ((%aref (idx)
              (aref sorted-array idx))
@@ -123,7 +127,7 @@
        finally (return (weight-and-bones weights bone-ids vertex-count)))))
 
 
-(defun convert-meshes (out)
+(defun convert-meshes (out prefix)
   (labels ((%appendable (idx 2d-array)
              (unless (null 2d-array)
                (list `(,idx ,(%2a->l 2d-array)))))
@@ -133,7 +137,7 @@
                  (m4:* (%bake-transform (ai:parent node)) (%a->m4 (ai:transform node)))))
            (%extract-mesh (node mesh idx)
              (declare (ignore idx))
-             (let* ((name (format nil "mesh.~a" (ai:name node)))
+             (let* ((name (format nil "mesh.~A" (ai:name node)))
                     (bones (unless (null (ai:bones mesh))
                              (loop with r = (make-hash-table :test 'eql)
                                 for bone across (ai:bones mesh)
@@ -163,13 +167,17 @@
                                          :offset (%a->l (ai:offset-matrix bone))))))))
            (%meshes (node)
              (%for-each-mesh node #'%extract-mesh)))
-    (loop for mesh in (%flat-traverse (ai:root-node *scene*) #'%meshes) do
-         (print (list :mesh :name (first mesh)) out)
-         (pprint mesh out))))
+    (loop for mesh in (%flat-traverse (ai:root-node *scene*) #'%meshes)
+       do (let ((data (flex:with-output-to-sequence (stream)
+                        (with-character-stream (stream)
+                          (prin1 mesh stream)))))
+            (with-character-stream (out)
+              (prin1 (list :mesh :name (prefixify (first mesh) prefix) :size (length data)) out))
+            (write-sequence data out)))))
 
 
 (declaim (special *parent-bone* *root*))
-(defun convert-bones (out)
+(defun convert-bones (out prefix)
   (let ((bone-table (make-hash-table :test 'equal)))
     (labels ((%register-parents (node)
                (if (gethash (ai:name node) bone-table)
@@ -193,8 +201,8 @@
                         (setf (gethash name bone-table) t)))))
 
              (%extract-animation-bones (animation)
-               (loop for chan across (ai:channels animation) do
-                    (setf (gethash (ai:node-name chan) bone-table) t)))
+               (loop for chan across (ai:channels animation)
+                  do (setf (gethash (ai:node-name chan) bone-table) t)))
 
              (%bones (node)
                (%for-each-mesh node #'%extract-mesh-bones))
@@ -212,15 +220,21 @@
 
       (%traverse (ai:root-node *scene*) #'%bones)
       (when-let ((animations (ai:animations *scene*)))
-        (loop for ani across animations do
-             (%extract-animation-bones ani)))
+        (loop for ani across animations
+           do (%extract-animation-bones ani)))
       (let ((*root* nil))
         (%register-parents (ai:root-node *scene*)))
       (let ((*parent-bone* (list nil)))
         (%bone-hierarchy (ai:root-node *scene*))
-        (loop for root in (rest *parent-bone*) do
-             (print (list :skeleton :name (caar root)) out)
-             (pprint root out))))))
+        (loop for root in (rest *parent-bone*)
+           do (let ((data (flex:with-output-to-sequence (stream)
+                            (with-character-stream (stream)
+                              (prin1 root stream)))))
+                (with-character-stream (out)
+                  (prin1 (list :skeleton :name (prefixify (format nil "skeleton.~A" (caar root)) prefix)
+                               :size (length data))
+                         out))
+                (write-sequence data out)))))))
 
 
 (defun interpolated-value (timestamp frames type name)
@@ -253,6 +267,7 @@
 
 
 (defun convert-keyframes (chan tps)
+  (declare (ignore tps))
   (labels ((%sort-by-time (seq)
              (sort seq #'< :key #'ai:key-time)))
     (let* ((name (ai:node-name chan))
@@ -271,19 +286,23 @@
                  (interpolated-value timestamp scales :vec name))))))
 
 
-(defun convert-animation (out)
+(defun convert-animation (out prefix)
   (when-let ((ani (ai:animations *scene*)))
     (loop for ani across ani
        for idx = 0 then (1+ idx)
        for ani-name = (format nil "animation.~a"  (ai:name ani))
-       for tps = (if (= (ai:ticks-per-second ani) 0) 1 (ai:ticks-per-second ani)) do
-         (print (list :animation :name ani-name) out)
-         (let ((chans (loop for chan across (ai:channels ani)
-                         for ch-name = (ai:node-name chan) collect
-                           (append (list (list (format nil "~a.~a.sequence" ani-name ch-name)
-                                               :bone ch-name))
-                                   (convert-keyframes chan tps)))))
-           (pprint (append (list ani-name) chans) out)))))
+       for tps = (if (= (ai:ticks-per-second ani) 0) 1 (ai:ticks-per-second ani))
+       do (let* ((chans (loop for chan across (ai:channels ani)
+                           for ch-name = (ai:node-name chan) collect
+                             (append (list (list (format nil "~a.~a.sequence" ani-name ch-name)
+                                                 :bone ch-name))
+                                     (convert-keyframes chan tps))))
+                 (data (flex:with-output-to-sequence (stream)
+                         (with-character-stream (stream)
+                           (prin1 (append (list ani-name) chans) stream)))))
+            (with-character-stream (out)
+              (prin1 (list :animation :name (prefixify ani-name prefix) :size (length data)) out))
+            (write-sequence data out)))))
 
 
 
@@ -297,12 +316,11 @@
       ,@body)))
 
 
-(defun assimp-to-bodge (bodge-stream asset-file)
+(defun assimp-to-bodge (bodge-stream asset-file &optional (prefix "/"))
   (with-scene (asset-file)
-    (let ((stream (flexi-streams:make-flexi-stream bodge-stream :external-format :utf-8)))
-      (convert-meshes stream)
-      (convert-bones stream)
-      (convert-animation stream))))
+    (convert-meshes bodge-stream prefix)
+    (convert-bones bodge-stream prefix)
+    (convert-animation bodge-stream prefix)))
 
 
 (defun print-hierarchy (in)

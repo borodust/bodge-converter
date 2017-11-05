@@ -35,26 +35,27 @@
          (atlas (sdf:make-atlas font-path pixel-size
                                 :width width :height height
                                 :string *default-characters*)))
-
-    (%image-to-bodge bodge-stream (sdf:atlas-image atlas) image-name)
-
-    (with-character-stream (bodge-stream)
-      (prin1 (list :font-atlas :name font-atlas-name) bodge-stream)
-      (let* ((font (sdf:atlas-metrics atlas))
-             (font-chunk (list (list font-atlas-name
-                                     :image-name image-name
-                                     :ascender (sdf:font-ascender font)
-                                     :descender (sdf:font-descender font)
-                                     :line-gap (sdf:font-line-gap font))))
-             (glyphs (loop for g in (sdf:font-glyphs font)
-                        for ch = (sdf:glyph-character g)
-                        collect (list (format nil "~a:~a" name ch)
-                                 :character (char-code ch)
-                                 :bounding-box (sdf:glyph-bounding-box g)
-                                 :origin (sdf:glyph-origin g)
-                                 :advance-width (sdf:glyph-advance-width g)
-                                 :kernings '()))))
-        (prin1 (append font-chunk glyphs) bodge-stream))))
+    (%png-image-to-bodge bodge-stream (sdf:atlas-image atlas) image-name)
+    (let* ((font (sdf:atlas-metrics atlas))
+           (font-chunk (list (list font-atlas-name
+                                   :image-name image-name
+                                   :ascender (sdf:font-ascender font)
+                                   :descender (sdf:font-descender font)
+                                   :line-gap (sdf:font-line-gap font))))
+           (glyphs (loop for g in (sdf:font-glyphs font)
+                      for ch = (sdf:glyph-character g)
+                      collect (list (format nil "~a:~a" name ch)
+                                    :character (char-code ch)
+                                    :bounding-box (sdf:glyph-bounding-box g)
+                                    :origin (sdf:glyph-origin g)
+                                    :advance-width (sdf:glyph-advance-width g)
+                                    :kernings '())))
+           (data (flex:with-output-to-sequence (stream)
+                   (with-character-stream (stream)
+                     (prin1 (append font-chunk glyphs) stream)))))
+      (with-character-stream (bodge-stream)
+        (prin1 (list :font-atlas :name font-atlas-name :size (length data)) bodge-stream))
+      (write-sequence data bodge-stream)))
   t)
 
 
