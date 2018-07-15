@@ -1,4 +1,4 @@
-(in-package :bodge-converter)
+(cl:in-package :bodge-converter)
 
 
 (defun channels->pixel-format (channels)
@@ -9,37 +9,43 @@
 
 
 (defun %raw-image-to-bodge (bodge-stream image image-name)
-  (let* ((image (opticl:transform-image image
-                                        (opticl:make-affine-transformation :y-scale -1.0)))
-         (image-data (flatten-array image))
-         (compressed-data (salza2:compress-data image-data 'salza2:deflate-compressor)))
-    (destructuring-bind (height width channels) (array-dimensions image)
+  (destructuring-bind (height width channels) (array-dimensions image)
+    (let* ((image (opticl:transform-image image
+                                          (opticl:make-affine-transformation :y-scale -1.0)))
+           (image-data (ge.util:flatten-array image))
+           (data (flex:with-output-to-sequence (out :element-type '(unsigned-byte 8))
+                   (with-character-stream (out)
+                     (prin1 (list :header :width width :height height
+                                          :pixel-format (channels->pixel-format channels)
+                                          :type :raw)
+                            out))
+                   (write-sequence image-data out)))
+           (compressed-data (salza2:compress-data data 'salza2:zlib-compressor)))
       (with-character-stream (bodge-stream)
-        (prin1 (list :image :width width :height height
-                     :pixel-format (channels->pixel-format channels)
-                     :type :raw :size (length compressed-data) :name image-name
-                     :compression :deflate :uncompressed-size (length image-data))
-               bodge-stream)))
-    (write-sequence compressed-data bodge-stream))
+        (prin1 (list :image :size (length compressed-data)
+                            :name image-name
+                            :compression :zlib)
+               bodge-stream))
+    (write-sequence compressed-data bodge-stream)))
   t)
 
 
 (defun %png-image-to-bodge (bodge-stream image image-name)
-  (let* ((image (opticl:transform-image image
-                                        (opticl:make-affine-transformation :y-scale -1.0)))
-         (image-data (flex:with-output-to-sequence (out)
+  (let* ((image-data (flex:with-output-to-sequence (out)
                        (opticl:write-png-stream out image))))
     (with-character-stream (bodge-stream)
-      (prin1 (list :image :type :png :size (length image-data) :name image-name)
+      (prin1 (list :image :size (length image-data) :name image-name)
              bodge-stream))
     (write-sequence image-data bodge-stream))
   t)
 
 
-(defun image-to-bodge (bodge-stream image-path &key ((:image-name custom-image-name))
-                                                 (type :raw))
-  (let ((image (opticl:read-image-file image-path))
-        (name (or custom-image-name (format nil "/image/~A" (file-namestring image-path)))))
-    (case type
-      (:raw (%raw-image-to-bodge bodge-stream image name))
-      (:png (%png-image-to-bodge bodge-stream image name)))))
+(defun write-image (bodge-stream image-path &key ((:image-name custom-image-name))
+                                              (type :raw))
+  (with-standard-io-syntax
+    (let ((image (opticl:read-image-file image-path))
+          (name (or custom-image-name (format nil "/image/~A" (file-namestring image-path))))
+          (*print-pretty* nil))
+      (case type
+        (:raw (%raw-image-to-bodge bodge-stream image name))
+        (:png (%png-image-to-bodge bodge-stream image name))))))

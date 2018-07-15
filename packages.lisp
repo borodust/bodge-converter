@@ -1,12 +1,7 @@
-(in-package :bodge-converter.def)
-
-
-(defpackage :bodge-converter
-  (:use :cl :alexandria)
-  (:export print-hierarchy
-
-           with-new-resource-file
-           assimp-to-bodge
-           sdf-to-bodge
-           image-to-bodge
+(cl:defpackage :bodge-converter
+  (:use :cl :alexandria :static-vectors)
+  (:export with-new-resource-file
+           write-scene
+           write-image
+           write-sdf-font
            dump-sdf-atlas))
