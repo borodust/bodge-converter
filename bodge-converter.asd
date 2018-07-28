@@ -6,7 +6,7 @@
   :license "MIT"
   :depends-on (alexandria log4cl cl-fad sdf flexi-streams opticl salza2
                           static-vectors
-                          cl-bodge/utils cl-bodge/engine
+                          cl-bodge/utils cl-bodge/engine cl-bodge/resources
                           assimp-blob bodge-assimp)
   :serial t
   :components ((:file "packages")
