@@ -23,7 +23,7 @@
            (compressed-data (salza2:compress-data data 'salza2:zlib-compressor)))
       (with-character-stream (bodge-stream)
         (prin1 (list :image :size (length compressed-data)
-                            :name image-name
+                            :name (fad:merge-pathnames-as-file image-name)
                             :compression :zlib)
                bodge-stream))
     (write-sequence compressed-data bodge-stream)))
@@ -41,11 +41,14 @@
 
 
 (defun write-image (bodge-stream image-path &key ((:image-name custom-image-name))
+                                              prefix
                                               (type :raw))
   (with-standard-io-syntax
-    (let ((image (opticl:read-image-file image-path))
-          (name (or custom-image-name (format nil "/image/~A" (file-namestring image-path))))
-          (*print-pretty* nil))
-      (case type
+    (let* ((image (opticl:read-image-file image-path))
+           (image-path (fad:merge-pathnames-as-file image-path))
+           (name (ensure-bodge-name (or custom-image-name (file-namestring image-path))
+                                    (or prefix (fad:pathname-directory-pathname image-path))))
+           (*print-pretty* nil))
+      (ecase type
         (:raw (%raw-image-to-bodge bodge-stream image name))
         (:png (%png-image-to-bodge bodge-stream image name))))))

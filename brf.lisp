@@ -26,3 +26,9 @@
        (let ((*print-pretty* nil))
          (write-brf-magic ,stream 2)
          ,@body))))
+
+
+(defun ensure-bodge-name (name &optional prefix)
+  (unless name
+    (error "Name cannot be null"))
+  (fad:merge-pathnames-as-file (or prefix "/") name))

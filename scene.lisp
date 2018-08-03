@@ -2,7 +2,9 @@
 
 
 (declaim (special *scene*
-                  *id*))
+                  *id*
+                  *images*
+                  *prefix*))
 
 (defparameter *property-class-table* (make-hash-table :test #'equal))
 
@@ -62,7 +64,6 @@
 ;;;
 ;;; MESHES
 ;;;
-
 (defun make-attribute-array (source-ptr foreign-type vertex-count element-size)
   (let* ((length (* vertex-count element-size))
          (type (ecase foreign-type
@@ -282,8 +283,12 @@
 (define-material-property (material-texture-file
                            "$tex.file"
                            material-string-property))
-(define-texture-property-applier (material-texture-file
-                                  ge.rsc:texture-resource-name))
+(defmethod apply-material-property ((this material-texture-file) material)
+  (flet ((setter (value texture)
+           (let ((name (fad:merge-pathnames-as-file *prefix* value)))
+             (pushnew (list value name) *images*)
+             (setf (ge.rsc:texture-resource-name texture) name))))
+    (apply-texture-property this material #'setter)))
 
 
 (defun ai->wrapping-mode (mode)
@@ -301,7 +306,6 @@
   (flet ((setter (value texture)
            (setf (ge.rsc:texture-resource-mapping-mode-u texture) (ai->wrapping-mode value))))
     (apply-texture-property this material #'setter)))
-
 
 
 (define-material-property (material-texture-map-mode-v
@@ -448,7 +452,8 @@
     (loop for i from 0 below (scene :num-materials)
           for material = (ge.rsc:make-material-resource)
           do (setf (ge.rsc:scene-resource-material bodge-scene i) material)
-             (fill-material material (scene :materials * i)))))
+             (fill-material material (scene :materials * i))
+          collect material)))
 
 ;;;
 ;;; SCENE
@@ -487,11 +492,20 @@
 (defun write-scene (bodge-stream scene-name scene-file &key prefix)
   (with-bound-scene (scene-file)
     (let* ((scene (ge.rsc:make-empty-scene-resource))
+           (*prefix* (or prefix "/"))
+           (*images* (list))
            (data (flex:with-output-to-sequence (out :element-type '(unsigned-byte 8))
                    (fill-meshes scene)
                    (fill-materials scene)
                    (ge.rsc:encode-resource (ge.rsc:make-resource-handler :scene) scene out))))
       (ge.rsc:write-chunk bodge-stream :scene
-                          (or prefix (format nil "/~A" scene-name))
+                          (fad:merge-pathnames-as-file *prefix* scene-name)
                           data)
+      (loop for (relative-path name) in *images*
+            do (write-image bodge-stream (fad:merge-pathnames-as-file
+                                          (fad:pathname-directory-pathname scene-file)
+                                          relative-path)
+                            :prefix (fad:pathname-directory-pathname name)
+                            :image-name (file-namestring name)
+                            :type :png))
       scene)))
