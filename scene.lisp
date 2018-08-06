@@ -286,7 +286,7 @@
 (defmethod apply-material-property ((this material-texture-file) material)
   (flet ((setter (value texture)
            (let ((name (fad:merge-pathnames-as-file *prefix* value)))
-             (pushnew (list value name) *images*)
+             (pushnew (list value name) *images* :test #'equal)
              (setf (ge.rsc:texture-resource-name texture) name))))
     (apply-texture-property this material #'setter)))
 
@@ -489,7 +489,7 @@
            (%ai:release-import *scene*))))))
 
 
-(defun write-scene (bodge-stream scene-name scene-file &key prefix)
+(defun write-scene (bodge-stream scene-file &key prefix scene-name)
   (with-bound-scene (scene-file)
     (let* ((scene (ge.rsc:make-empty-scene-resource))
            (*prefix* (or prefix "/"))
@@ -499,7 +499,11 @@
                    (fill-materials scene)
                    (ge.rsc:encode-resource (ge.rsc:make-resource-handler :scene) scene out))))
       (ge.rsc:write-chunk bodge-stream :scene
-                          (fad:merge-pathnames-as-file *prefix* scene-name)
+                          (fad:merge-pathnames-as-file *prefix* (uiop:enough-pathname
+                                                                 (or (when scene-name
+                                                                       (fad:pathname-as-file scene-name))
+                                                                     (file-namestring scene-file))
+                                                                 "/"))
                           data)
       (loop for (relative-path name) in *images*
             do (write-image bodge-stream (fad:merge-pathnames-as-file
