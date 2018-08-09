@@ -11,20 +11,14 @@
      ,@body))
 
 
-(defun write-brf-magic (stream version)
-  (with-binary-stream (stream)
-    (format stream "bodged!")
-    (write-byte version stream)))
-
-
 (defmacro with-new-resource-file ((stream file-path &rest args &key &allow-other-keys)
-                                        &body body)
+                                  &body body)
   `(with-open-file (,stream ,file-path ,@args
                             :element-type '(unsigned-byte 8)
                             :direction :output)
+     (ge.rsc:write-brf-magic ,stream 2)
      (with-standard-io-syntax
        (let ((*print-pretty* nil))
-         (write-brf-magic ,stream 2)
          ,@body))))
 
 
