@@ -360,8 +360,8 @@
                            material-string-property))
 (defmethod apply-material-property ((this material-texture-file) material)
   (flet ((setter (value texture)
-           (let ((name (fad:merge-pathnames-as-file *prefix* value)))
-             (pushnew (list value name) *images* :test #'equal)
+           (let ((name (substitute "-" "." value)))
+             (pushnew (list name value) *images* :test #'equal)
              (setf (ge.rsc:texture-resource-name texture) name))))
     (apply-texture-property this material #'setter)))
 
@@ -580,11 +580,11 @@
                                                                      (file-namestring scene-file))
                                                                  "/"))
                           data)
-      (loop for (relative-path name) in *images*
+      (loop for (name relative-path) in *images*
             do (write-image bodge-stream (fad:merge-pathnames-as-file
                                           (fad:pathname-directory-pathname scene-file)
                                           relative-path)
-                            :prefix (fad:pathname-directory-pathname name)
-                            :image-name (file-namestring name)
+                            :prefix *prefix*
+                            :image-name (namestring name)
                             :type :png))
       scene)))
