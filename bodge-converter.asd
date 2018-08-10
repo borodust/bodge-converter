@@ -13,4 +13,11 @@
                (:file "brf")
                (:file "image")
                (:file "sdf")
-               (:file "scene")))
+               (:module scene
+                :serial t
+                :components ((:file "utils")
+                             (:file "node")
+                             (:file "material")
+                             (:file "mesh")
+                             (:file "animation")
+                             (:file "scene")))))

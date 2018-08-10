@@ -1,219 +1,5 @@
 (cl:in-package :bodge-converter)
 
-
-(define-constant +max-tex-coord-channels+ 8)
-(define-constant +max-color-channels+ 8)
-
-
-(declaim (special *scene*
-                  *id*
-                  *images*
-                  *prefix*))
-
-(defparameter *property-class-table* (make-hash-table :test #'equal))
-
-
-(defun register-material-property-class (name class)
-  (setf (gethash name *property-class-table*) class))
-
-
-(defun find-material-property-class (name)
-  (gethash name *property-class-table*))
-
-
-(defun ai-real (value)
-  (float value 0f0))
-
-
-(defmacro with-id-counter (() &body body)
-  `(let ((*id* 0))
-     ,@body))
-
-
-(defun next-id ()
-  (prog1 *id*
-    (incf *id*)))
-
-
-(defmacro with-ai-struct ((var type value) &body body)
-  `(claw:c-let ((,var (:struct (,type)) :from ,(or value var)))
-     ,@body))
-
-
-(defmacro with-scene ((scene-var) &body body)
-  `(with-ai-struct (,scene-var %ai:scene *scene*)
-     ,@body))
-
-
-(defmacro with-mesh ((mesh-var &optional mesh-val) &body body)
-  `(with-ai-struct (,mesh-var %ai:mesh ,mesh-val)
-     ,@body))
-
-
-(defmacro with-material ((var &optional value) &body body)
-  `(with-ai-struct (,var %ai:material ,value)
-     ,@body))
-
-
-(defmacro with-material-property ((var &optional value) &body body)
-  `(with-ai-struct (,var %ai:material-property ,value)
-     ,@body))
-
-
-(defun ai-string-to-lisp (ai-string)
-  (claw:c-val ((ai-string (:struct (%ai:string))))
-    (cffi:foreign-string-to-lisp (ai-string :data &) :count (ai-string :length))))
-
-
-;;;
-;;; MESHES
-;;;
-(defun make-attribute-array-from-continuous (source-ptr foreign-type vertex-count element-size)
-  (let* ((length (* vertex-count element-size))
-         (type (ecase foreign-type
-                 (:float 'single-float)
-                 (:unsigned-int '(unsigned-byte 32))))
-         (array (make-static-vector length :element-type type))
-         (dst-ptr (static-vector-pointer array)))
-    (claw:memcpy dst-ptr source-ptr :n length :type foreign-type)
-    array))
-
-
-(defun make-attribute-array-from-strided (source-ptr foreign-type vertex-count element-size
-                                          skipped-element-count)
-  ;; We heard you like C so we added a bit of it into your CL
-  (let* ((length (* vertex-count element-size))
-         (type (ecase foreign-type
-                 (:float 'single-float)
-                 (:unsigned-int '(unsigned-byte 32))))
-         (array (make-static-vector length :element-type type))
-         (dst-ptr (static-vector-pointer array))
-         (src-element-byte-size (* (claw:sizeof foreign-type) (+ element-size skipped-element-count)))
-         (dst-element-byte-size (* (claw:sizeof foreign-type) element-size))
-         (src-addr (cffi:pointer-address source-ptr))
-         (dst-addr (cffi:pointer-address dst-ptr)))
-    (loop for i below vertex-count
-          for from-addr = (+ src-addr (* src-element-byte-size i))
-          for to-addr = (+ dst-addr (* dst-element-byte-size i))
-          do (claw:memcpy (cffi:make-pointer to-addr)
-                          (cffi:make-pointer from-addr)
-                          :n element-size
-                          :type foreign-type))
-    array))
-
-
-(defun make-attribute-array (source-ptr foreign-type vertex-count element-size
-                             &optional (skipped-element-count 0))
-  (if (zerop skipped-element-count)
-      (make-attribute-array-from-continuous source-ptr foreign-type vertex-count element-size)
-      (make-attribute-array-from-strided source-ptr foreign-type vertex-count element-size
-                                         skipped-element-count)))
-
-
-(defun set-position-array (bodge-mesh mesh)
-  (with-mesh (mesh)
-    (let ((vertex-count (mesh :num-vertices)))
-      (when (> vertex-count 0)
-        (let ((array (make-attribute-array (mesh :vertices) :float vertex-count 3)))
-          (setf (ge.rsc:mesh-resource-position-array bodge-mesh) array))))))
-
-
-(defun copy-indices (array face face-idx primitive-vertex-count)
-  (claw:c-val ((face (:struct (%ai:face))))
-    (unless (= primitive-vertex-count (face :num-indices))
-      (error "Unexpected number of face vertices: expected ~A, but got ~A"
-             primitive-vertex-count (face :num-indices)))
-    (claw:c-let ((indices :unsigned-int :ptr (face :indices)))
-      (loop with start-idx = (* face-idx primitive-vertex-count)
-            for i from 0 below primitive-vertex-count
-            do (setf (aref array (+ start-idx i)) (indices i))))))
-
-
-(defun set-index-array (bodge-mesh mesh)
-  ;; Single face type assumed
-  (with-mesh (mesh)
-    (let* ((primitive-vertex-count (eswitch ((mesh :primitive-types) :test #'=)
-                                     (%ai:+primitive-type-point+ 1)
-                                     (%ai:+primitive-type-line+ 2)
-                                     (%ai:+primitive-type-triangle+ 3)))
-           (face-count (mesh :num-faces))
-           (length (* primitive-vertex-count face-count))
-           (array (make-static-vector length :element-type '(unsigned-byte 32))))
-      (loop for face-idx below face-count
-            do (copy-indices array (mesh :faces * face-idx) face-idx primitive-vertex-count))
-      (setf (ge.rsc:mesh-resource-index-array bodge-mesh) array))))
-
-
-(defun set-normal-array (bodge-mesh mesh)
-  (with-mesh (mesh)
-    (let ((normal-count (mesh :num-vertices)))
-      (when (> normal-count 0)
-        (let ((array (make-attribute-array (mesh :normals) :float normal-count 3)))
-          (setf (ge.rsc:mesh-resource-normal-array bodge-mesh) array))))))
-
-
-(defun set-tangent-array (bodge-mesh mesh)
-  (with-mesh (mesh)
-    (let ((tangent-count (mesh :num-vertices)))
-      (when (> tangent-count 0)
-        (let ((array (make-attribute-array (mesh :tangents) :float tangent-count 3)))
-          (setf (ge.rsc:mesh-resource-tangent-array bodge-mesh) array))))))
-
-
-(defun set-tex-coord-arrays (bodge-mesh mesh)
-  (with-mesh (mesh)
-    (loop with tex-coord-count = (mesh :num-vertices)
-          for i below +max-tex-coord-channels+
-          for tex-coord-array-ptr = (mesh :texture-coords i)
-          for component-count = (mesh :num-uv-components i)
-          when (> component-count 0)
-            do (let ((attrib-array (make-attribute-array tex-coord-array-ptr
-                                                         :float
-                                                         tex-coord-count
-                                                         component-count
-                                                         (- 3 component-count))))
-                 (setf (ge.rsc:mesh-resource-tex-coord-array bodge-mesh i) attrib-array)))))
-
-
-(defun set-color-arrays (bodge-mesh mesh)
-  (with-mesh (mesh)
-    (loop with color-count = (mesh :num-vertices)
-          and component-count = 4
-          for i below +max-color-channels+
-          for color-array-ptr = (mesh :colors i)
-          unless (claw:null-pointer-p color-array-ptr)
-            do (let ((attrib-array (make-attribute-array color-array-ptr
-                                                         :float
-                                                         color-count
-                                                         component-count)))
-                 (setf (ge.rsc:mesh-resource-color-array bodge-mesh i) attrib-array)))))
-
-
-(defun make-mesh (mesh)
-  (with-mesh (mesh)
-    (let* ((primitive-type (switch ((mesh :primitive-types) :test #'=)
-                             (%ai:+primitive-type-point+ :points)
-                             (%ai:+primitive-type-line+ :lines)
-                             (%ai:+primitive-type-triangle+ :triangles)
-                             (t (error "Unexpected primitive type: ~A" (mesh :primitive-types)))))
-           (bodge-mesh (ge.rsc:make-mesh-resource primitive-type)))
-      (set-position-array bodge-mesh mesh)
-      (set-index-array bodge-mesh mesh)
-      (set-normal-array bodge-mesh mesh)
-      (set-tangent-array bodge-mesh mesh)
-      (set-color-arrays bodge-mesh mesh)
-      (set-tex-coord-arrays bodge-mesh mesh)
-      bodge-mesh)))
-
-
-(defun fill-meshes (bodge-scene)
-  (with-scene (scene)
-    (with-mesh (mesh-array (scene :meshes *))
-      (loop for mesh-idx below (scene :num-meshes)
-            for mesh = (make-mesh (mesh-array mesh-idx))
-            do (setf (ge.rsc:scene-resource-mesh bodge-scene mesh-idx) mesh)))))
-
-
 ;;;
 ;;; MATERIALS
 ;;;
@@ -293,6 +79,20 @@
     (let ((array (read-integer-array-property material name semantic-type index 1)))
       (setf value (aref array 0)))))
 
+(defclass material-uv-transform-property (material-property) ())
+
+(defmethod init-material-property ((this material-uv-transform-property) material)
+  (with-slots (value name semantic-type index) this
+    (claw:c-with ((transform (:struct (%ai:uv-transform))))
+      (%ai:get-material-uv-transform material name semantic-type index (transform &))
+
+      (setf value (ge.ng:mult (ge.ng:euler-angle->mat3 (transform :rotation))
+                              (ge.ng:translation-mat3 (transform :translation :x)
+                                                      (transform :translation :y))
+                              (ge.ng:scaling-mat3 (transform :scaling :x)
+                                                  (transform :scaling :y)))))))
+
+
 (defun invoke-material-setter (property material setter)
   (with-slots (value) property
     (funcall setter value material)))
@@ -314,6 +114,21 @@
 (define-material-property (material-shininess "$mat.shininess" material-float-property
                                               ge.rsc:material-resource-shininess))
 
+(define-material-property (material-shininess-strength "$mat.shinpercent" material-float-property
+                                                       ge.rsc:material-resource-shininess-strength))
+
+(define-material-property (material-opacity "$mat.opacity" material-float-property
+                                              ge.rsc:material-resource-opacity))
+
+(define-material-property (material-reflectivity "$mat.reflectivity" material-float-property
+                                              ge.rsc:material-resource-reflectivity))
+
+(define-material-property (material-bump-scaling "$mat.bumpscaling" material-float-property
+                                                 ge.rsc:material-resource-bump-scaling))
+
+(define-material-property (material-displacement-scaling "$mat.displacementscaling" material-float-property
+                                                         ge.rsc:material-resource-displacement-scaling))
+
 ;; Doesn't return value, see https://github.com/assimp/assimp/issues/1492
 #++(define-material-property (material-two-sided "$mat.twosided") (material-bool-property))
 
@@ -323,8 +138,20 @@
 (define-material-property (material-color-diffuse "$clr.diffuse" material-color3-property
                                                   ge.rsc:material-resource-diffuse-color))
 
+(define-material-property (material-color-ambient "$clr.ambient" material-color3-property
+                                                  ge.rsc:material-resource-ambient-color))
+
+(define-material-property (material-color-specular "$clr.specular" material-color3-property
+                                                  ge.rsc:material-resource-specular-color))
+
 (define-material-property (material-color-emissive "$clr.emissive" material-color3-property
                                                    ge.rsc:material-resource-emissive-color))
+
+(define-material-property (material-color-transparent "$clr.transparent" material-color3-property
+                                                      ge.rsc:material-resource-transparent-color))
+
+(define-material-property (material-color-reflective "$clr.reflective" material-color3-property
+                                                     ge.rsc:material-resource-reflective-color))
 
 ;;;
 ;;; TEXTURE MATERIAL PROPERTIES
@@ -360,8 +187,8 @@
                            material-string-property))
 (defmethod apply-material-property ((this material-texture-file) material)
   (flet ((setter (value texture)
-           (let ((name (substitute "-" "." value)))
-             (pushnew (list name value) *images* :test #'equal)
+           (let ((name (ge.util:replace-all (unixify value) "../" "--/")))
+             (pushnew (list name (unixify value)) *images* :test #'equal)
              (setf (ge.rsc:texture-resource-name texture) name))))
     (apply-texture-property this material #'setter)))
 
@@ -394,9 +221,16 @@
 
 (define-material-property (material-texture-uvwsrc
                            "$tex.uvwsrc"
-                           material-string-property))
+                           material-integer-property))
 (define-texture-property-applier (material-texture-uvwsrc
                                   ge.rsc:texture-resource-channel))
+
+
+(define-material-property (material-texture-uv-transform
+                           "$tex.uvtrafo"
+                           material-uv-transform-property))
+(define-texture-property-applier (material-texture-uv-transform
+                                  ge.rsc:texture-resource-uv-transform))
 
 
 (define-material-property (material-texture-tex-coord
@@ -430,7 +264,14 @@
 
 
 (defun ai->mapping-filter-type (type)
-  (eswitch (type :test #'+)))
+  (eswitch (type :test #'=)
+    (9728 :nearest)
+    (9729 :linear)
+    (9984 :nearest-mipmap-nearest)
+    (9985 :linear-mipmap-nearest)
+    (9986 :nearest-mipmap-linear)
+    (9987 :linear-mipmap-linear)))
+
 
 (define-material-property (material-texture-mapping-filter-min
                            "$tex.mappingfiltermin"
@@ -513,7 +354,7 @@
                                                       :index (property :index))))
           (init-material-property instance material)
           (apply-material-property instance bodge-material))
-        (log:warn "Ignoring property ~A" property-name)))))
+        (warn "Ignoring property ~A" property-name)))))
 
 
 (defun fill-material (bodge-material material)
@@ -529,62 +370,3 @@
           do (setf (ge.rsc:scene-resource-material bodge-scene i) material)
              (fill-material material (scene :materials * i))
           collect material)))
-
-;;;
-;;; SCENE
-;;;
-(claw:defcallback write-log :void ((message :pointer) (data :pointer))
-  (declare (ignore data))
-  (format *standard-output* "~A" (cffi:foreign-string-to-lisp message)))
-
-
-(defmacro with-logging (() &body body)
-  (with-gensyms (logger)
-    `(claw:c-with ((,logger (:struct (%ai:log-stream))))
-       (setf (,logger :callback) (claw:callback 'write-log))
-       (%ai:attach-log-stream ,logger)
-       (unwind-protect
-            (progn ,@body)
-         (%ai:detach-log-stream ,logger)))))
-
-
-(defmacro with-bound-scene ((path) &body body)
-  (once-only (path)
-    `(with-logging ()
-       (let* ((*scene* (%ai:import-file (namestring (truename ,path))
-                                        (logior %ai:+process-preset-target-realtime-max-quality+
-                                                %ai:+process-optimize-graph+
-                                                %ai:+process-debone+
-                                                %ai:+process-sort-by-p-type+
-                                                %ai:+process-triangulate+))))
-         (unless *scene*
-           (error "Failed to parse asset file '~A'" ,path))
-         (unwind-protect
-              (progn ,@body)
-           (%ai:release-import *scene*))))))
-
-
-(defun write-scene (bodge-stream scene-file &key prefix scene-name)
-  (with-bound-scene (scene-file)
-    (let* ((scene (ge.rsc:make-empty-scene-resource))
-           (*prefix* (or prefix "/"))
-           (*images* (list))
-           (data (flex:with-output-to-sequence (out :element-type '(unsigned-byte 8))
-                   (fill-meshes scene)
-                   (fill-materials scene)
-                   (ge.rsc:encode-resource (ge.rsc:make-resource-handler :scene) scene out))))
-      (ge.rsc:write-chunk bodge-stream :scene
-                          (fad:merge-pathnames-as-file *prefix* (uiop:enough-pathname
-                                                                 (or (when scene-name
-                                                                       (fad:pathname-as-file scene-name))
-                                                                     (file-namestring scene-file))
-                                                                 "/"))
-                          data)
-      (loop for (name relative-path) in *images*
-            do (write-image bodge-stream (fad:merge-pathnames-as-file
-                                          (fad:pathname-directory-pathname scene-file)
-                                          relative-path)
-                            :prefix *prefix*
-                            :image-name (namestring name)
-                            :type :png))
-      scene)))
