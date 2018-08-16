@@ -86,11 +86,11 @@
     (claw:c-with ((transform (:struct (%ai:uv-transform))))
       (%ai:get-material-uv-transform material name semantic-type index (transform &))
 
-      (setf value (ge.ng:mult (ge.ng:euler-angle->mat3 (transform :rotation))
-                              (ge.ng:translation-mat3 (transform :translation :x)
-                                                      (transform :translation :y))
-                              (ge.ng:scaling-mat3 (transform :scaling :x)
-                                                  (transform :scaling :y)))))))
+      (setf value (ge.ng:mult (ge.ng:euler-angle->mat3-homo (transform :rotation))
+                              (ge.ng:translation-mat3-homo (transform :translation :x)
+                                                           (transform :translation :y))
+                              (ge.ng:scaling-mat3-homo (transform :scaling :x)
+                                                       (transform :scaling :y)))))))
 
 
 (defun invoke-material-setter (property material setter)
