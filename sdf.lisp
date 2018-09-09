@@ -30,7 +30,7 @@
                                                         :line-gap (sdf:font-line-gap font)
                                                         :glyphs glyphs))
            (data (flex:with-output-to-sequence (stream)
-                   (ge.rsc:encode-resource (ge:make-resource-handler :font-atlas) font-chunk stream))))
+                   (ge.rsc:encode-resource (ge.rsc:make-resource-handler :font-atlas) font-chunk stream))))
       (ge.rsc:write-chunk bodge-stream :font-atlas font-atlas-name data)))
   t)
 
