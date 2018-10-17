@@ -75,7 +75,7 @@
                  (:unsigned-int '(unsigned-byte 32))))
          (array (make-static-vector length :element-type type))
          (dst-ptr (static-vector-pointer array)))
-    (claw:memcpy dst-ptr source-ptr :n length :type foreign-type)
+    (claw:memcpy dst-ptr source-ptr length foreign-type)
     array))
 
 
@@ -97,8 +97,7 @@
           for to-addr = (+ dst-addr (* dst-element-byte-size i))
           do (claw:memcpy (cffi:make-pointer to-addr)
                           (cffi:make-pointer from-addr)
-                          :n element-size
-                          :type foreign-type))
+                          element-size foreign-type))
     array))
 
 
